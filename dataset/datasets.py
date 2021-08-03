@@ -4,8 +4,9 @@ import torch.utils.data as Data
 import struct
 
 import numpy as np
+from util.utils import tobinary
 
-
+'''
 def tobinary(a, n):
     a = bin(a)[2:]
     a = a.rjust(n, '0')
@@ -13,7 +14,7 @@ def tobinary(a, n):
     for i in range(n):
         res.append(int(a[i]))
     return res
-
+'''
 
 class MyDataLoader:
     def __init__(self, batch_size, shuffle=True, used = 1.0):
@@ -33,7 +34,7 @@ class MyDataLoader:
         for i in range(2**4):
             for j in range(2**4):
                 x.append(tobinary(i,4) + tobinary(j,4))
-                y.append([int(int((i*j)/16)%2), int(int((i*j)/8)%2), int(int((i*j)/4)%2)])
+                y.append([int(int((i+j)/16)%2), int(int((i+j)/8)%2), int(int((i+j)/4)%2)])
                 #print(i,j,x[-1],y[-1])
         '''
         for i in range(2**8):

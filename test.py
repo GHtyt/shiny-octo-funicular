@@ -63,7 +63,7 @@ x.map_(x,f)
 print(x)
 
 '''
-
+'''
 from customlayer import *
 
 a= torch.tensor([[1,0,1]])
@@ -71,3 +71,10 @@ nl = MyNand3Layer(3)
 b = nl(a)
 print(b)
 print(b.shape)
+
+'''
+from dataset.binset import *
+
+x = build()
+y = x.data.sum(dim=0)/256
+print(y)

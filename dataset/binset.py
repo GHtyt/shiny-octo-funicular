@@ -73,6 +73,14 @@ class binset:
         d = self.data[idx]
         return binset(d.shape[1], d.shape[0], self.ll, d)
 
+    def usemask(self, trainm, labelm):
+        trl = len(trainm)
+        lal = len(labelm)
+        labelm = [i+self.ll for i in labelm]
+        #print(trl+lal, self.y, trl, self.data[:, trainm+labelm])
+        bset = binset(trl+lal, self.y, trl, self.data[:, trainm+labelm])
+        return bset
+
 
 def tobinary(a, n):
     a = bin(a)[2:]
@@ -86,18 +94,19 @@ def build():
     random.seed(0)
     x=[]
     y=[]
-    for i in range(2**2):
-        for j in range(2**1):
-            x.append(tobinary(i,2) + tobinary(j,1)+[round(random.random()), round(random.random())])
+    for i in range(2**4):
+        for j in range(2**4):
+            x.append(tobinary(i,4) + tobinary(j,4)+tobinary(i*j, 8))      #[round(random.random()), round(random.random())])
             y.append(int(int((i*j)/16)%2))
             #print(i,j,x[-1],y[-1])
 
     #print(x)
 
-    x=binset(5, 8, 3, x)
+    #x=binset(32, 65536, 16, x)
+    x=binset(16, 256, 8, x)
 
-    print("here\n", x.data)
-    print(x.split(2)[0].unique)
+    #print("here\n", x.data)
+    #print(x.split(2)[0].unique)
     return x
 
 #build()

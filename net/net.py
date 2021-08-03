@@ -1,8 +1,9 @@
 import torch
-from color import *
-from datasets import *
-from customlayer import *
+from util.color import *
+import torch.utils.data as Data
+from net.customlayer import *
 from torch.nn.parameter import Parameter
+
 
 #USE_CUDA = 1
 #INBIT = 8
@@ -42,7 +43,7 @@ class CNN(nn.Module):
 
 
 class cnnnode:
-    def __init__(self, INPUT_BIT, OUTPUT_BIT, train_data, label_data, learning_rate=0.001, USE_CUDA=True):
+    def __init__(self, INPUT_BIT, OUTPUT_BIT, train_data, label_data, ll=0, dl=0, mask=None, val=None, tm=None, lm=None, learning_rate=0.001, USE_CUDA=True):
         self.ib = INPUT_BIT
         self.ob = OUTPUT_BIT
         self.cnn = CNN(INPUT_BIT, OUTPUT_BIT)
@@ -51,20 +52,42 @@ class cnnnode:
             self.cnn = self.cnn.cuda() 
         self.lr = learning_rate
 
+        self.ll = ll
+        self.dl = dl
+        self.mask = mask
+        #print("val", self.val)
+        self.val = val
+        self.tm = tm
+        self.lm = lm
+        
+
         self.correctness = 0
 
         self.EPOCH = 3000
 
-        self.train_batch_size = 32
-        self.test_batch_size = 256
+        self.train_batch_size = 1
+        self.test_batch_size = 65536
 
         
         self.optimizer = torch.optim.Adam(self.cnn.parameters(), lr=self.lr)
         self.criterion = nn.MSELoss(reduction='mean')#nn.CrossEntropyLoss()
+        
+        cnn2 = CNN(8, 3)
+        cnn2.load_state_dict(torch.load("pkl/cnn_8_3.pkl"))
+        self.cnn.conv1.weight.data = cnn2.conv1.weight.cuda()
+        self.cnn.conv2.weight.data = cnn2.conv2.weight.cuda()
+        self.cnn.conv3.weight.data = cnn2.conv3.weight.cuda()
+        #self.cnn.fc1[0].weight.data = cnn2.fc1[0].weight.cuda()
+        #self.cnn.fc1[0].bias.data   = cnn2.fc1[0].bias.cuda()
+        #self.cnn.fc1[1].weight.data = cnn2.fc1[1].weight.cuda()
+        #self.cnn.fc1[1].bias.data   = cnn2.fc1[1].bias.cuda()
+        
 
+        print(train_data.data, label_data.data)
         if train_data != None:
+            #print(train_data.shape)
 
-            torch_dataset= Data.TensorDataset(train_data, label_data)
+            torch_dataset= Data.TensorDataset(train_data.data, label_data.data)
 
             self.train_loader = Data.DataLoader(
                 dataset=torch_dataset,
@@ -81,6 +104,7 @@ class cnnnode:
             )
 
         else:
+            from dataset.datasets import MyDataLoader
                 
             self.train_loader = MyDataLoader(32).loader
             self.test_loader = MyDataLoader(256, False).loader
@@ -91,6 +115,7 @@ class cnnnode:
             if self.USE_CUDA:
                 b_x = b_x.to("cuda")
                 b_y = b_y.to("cuda")
+                #print(b_x, b_y)
             for i in range(self.ob):
                 bb_y = b_y[:, i]
                 output = self.cnn(b_x, i)[0]
@@ -105,12 +130,14 @@ class cnnnode:
         test_all = 0
         test_right = 0
         for test_step, (t_x, t_y) in enumerate(self.test_loader):
+            #print(test_step, t_x.shape)
             if self.USE_CUDA:
                 t_x = t_x.to("cuda")
                 t_y = t_y.to("cuda")
             for i in range(self.ob):
                 tt_y = t_y[:, i]
-                output = self.cnn(t_x, i)[0]
+                with torch.no_grad():
+                    output = self.cnn(t_x, i)[0]
                 test_right += (torch.sum(torch.abs(torch.round(output)-tt_y)))
                 #print(i, test_right)
         '''
@@ -130,20 +157,24 @@ class cnnnode:
 
     def fit(self, Epoch=0):
         if Epoch == 0:
-            Epoch = self.Epoch
+            Epoch = self.EPOCH
         for bit in [0]: 
             for epoch in range(Epoch):
                 self.train(epoch)
 
-                acc = self.test(epoch)
+                #acc = self.test(epoch)
 
                 
-                if (epoch+1) %10 == 0:                       
+                if (epoch+1) %10 == 0:  
+                    acc = self.test(epoch)                     
                     INFO("    epoch %d   testing  test err : %f"%(epoch, acc))
 
-                if acc == 0:
-                    #print(self.cnn.conv1.weight)
-                    break
+                    if acc == 0:
+                        save_path = "pkl/cnn_%d_%d.pkl"%(self.ib, self.ob)
+                        INFO("saving models to " + save_path)
+                        torch.save(self.cnn.state_dict(), save_path)
+                        #print(self.cnn.conv1.weight)
+                        break
         return acc
     
     def predict(self, x):
@@ -155,14 +186,32 @@ class cnnnode:
             num_workers=0
         )'''
         #DEBUG(x)
-        x = torch.tensor(x, dtype=torch.float).view(1, self.ib).cuda()
+        #print(x)
+        if self.tm != None:
+            x = x[self.tm]            
+        x = torch.tensor(x, dtype=torch.float).view(1, len(x)).cuda()
+        #else:
+        #    x = torch.tensor(x, dtype=torch.float).view(1, self.ib).cuda()
         output = []
         for i in range(self.ob):
             output.append(self.cnn(x, i)[0].cpu())
         output = torch.cat(output)
-        res = torch.round(output)
-        #print(res)
+        res = torch.round(output).view(1, self.ob)
+        #print(res, self.lm)
         #print(res.detach())
+        if len(self.lm) > 0:
+            #print("res", res)
+            res = torch.zeros(res.shape[0], self.dl).scatter_(1, torch.LongTensor([self.lm]*res.shape[0]), res)
+
+        if res.shape[0] == 1:
+            res = res.view(res.shape[1])
+
+            
+        #x = torch.rand(n, len(mask))
+        #print(x)
+        #print(torch.LongTensor([mask]*n))
+        #print(torch.zeros(n, 8).scatter_(1, torch.LongTensor([mask]*n), x))
+
         return res.detach().numpy()
 
 

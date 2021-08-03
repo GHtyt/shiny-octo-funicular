@@ -31,12 +31,21 @@ class Node:
             self.remain = remain
         '''
 
+        self.mask = []
+        self.val = []
+        self.trainmask = []
+        self.labelmask = []
+
     def predict(self, row):
+        pred = self.avg.numpy()
         if self.type == Node.LEAF:
-            return self.avg
+            pass
 
         elif self.type == Node.NET:
-            return self.func.predict(row)
+            #return self.func.predict(row)  #.cpu().numpy()
+            #print(row, self.func.predict(row))
+            pred = pred + self.func.predict(row)
+        return pred
 
     def copy(self, node):
 
@@ -92,6 +101,8 @@ class RegressionTree:
         self._rules = None
 
         self.max_nodes = max_nodes
+
+        self.net_nodes = []
 
 
     def newnodes(self, i):
@@ -155,14 +166,14 @@ class RegressionTree:
             
 
 
-    def fit(self, data_all, max_depth=7, min_samples_split=1):
+    def fit(self, data_all, max_depth=7, min_samples_split=1, max_nodes=8):
 
         self._calculate_mse_gain(self.root, data_all)
         que = [(self.depth + 1, self.nodes[self.root], data_all)]
 
         # Breadth-First Search.
         j = 0
-        while que and self.next <= self.max_nodes:
+        while que and self.next <= max_nodes:
             #print(j)
             j += 1
             #print(que)
@@ -177,18 +188,54 @@ class RegressionTree:
                 #node.avg = dall.avg
                 continue
 
-            INFO("learning node %d"%(node.pos))
-            train_data = dall.train().to(torch.float)
-            label_data = dall.label().to(torch.float)
-            #print(train_data.data, label_data.data)
-            cnode = cnnnode(dall.ll, dall.dl, train_data, label_data)
-            acc = cnode.fit(100) / dall.x            
-            SHOW("    node %d, acc : %f"%(node.pos, 1-(acc/dall.x)))
+            m = torch.mean(dall.data.to(torch.float), dim=0).tolist()
+            print(m)
+            
+            MASK_MIN = 0.2
+            MAXK_MAX = 1-MASK_MIN
 
-            if acc < 0.1:
-                SHOW("    method pass %d"%(node.pos))
-                node.type = Node.NET
-                node.func = cnode
+            for i, j in enumerate(m):
+                if j < MASK_MIN:
+                    node.mask.append(i)
+                    node.val.append(0)
+                elif j > MAXK_MAX:
+                    node.mask.append(i)
+                    node.val.append(1)
+                elif i < dall.ll:
+                    node.trainmask.append(i)
+                elif i >= dall.ll:
+                    node.labelmask.append(i-dall.ll)
+            #print(node.mask, node.val, node.trainmask, node.labelmask)
+
+
+
+            #node.getmask()
+
+            #if depth>2 and len(self.net_nodes)==0 and len(node.trainmask) > 0 and len(node.labelmask) > 0:
+            if len(node.trainmask) > 0 and len(node.labelmask) > 0:
+                net_dall = dall.usemask(node.trainmask, node.labelmask)
+
+                INFO("learning node %d"%(node.pos))
+                train_data = net_dall.train().to(torch.float)
+                label_data = (net_dall.label()-net_dall.avg).to(torch.float)
+                print(train_data.size())
+                print(label_data.size())
+                #print(train_data.data, label_data.data)
+                cnode = cnnnode(net_dall.ll, net_dall.dl, train_data, label_data, dall.ll, dall.dl, node.mask, node.val, node.trainmask, node.labelmask)
+                acc = cnode.fit(100) / net_dall.y / net_dall.dl            
+                #print(acc)
+                #SHOW("    node %d, acc : %f"%(node.pos, 1-(acc/dall.x)))
+                SHOW("    node %d, acc : %f"%(node.pos, 1-acc))
+                #print(acc/dall.x, dall.x)
+
+                if acc < 0.5:
+                    SHOW("    method pass %d"%(node.pos))
+                    acc = cnode.fit(300) / net_dall.y / net_dall.dl   
+                    SHOW("    node %d, acc : %f"%(node.pos, 1-acc))         
+                    node.type = Node.NET
+                    node.func = cnode
+                    self.net_nodes.append(node)
+                    continue
             
             else:
                 ERR("    spliting node")
@@ -211,7 +258,7 @@ class RegressionTree:
 
         
     def predict_one(self, row):
-
+        #print(row)
         node = self.nodes[self.root]
         while node.split != -1 and node.son[row[node.split]] != 0:
             #print(node.pos, row, node.son[row[node.split]] )
@@ -222,7 +269,7 @@ class RegressionTree:
         return node.predict(row)
 
     def predict(self, data):
-        data = data.data.numpy()
+        data = data.train().numpy()
         self.printf()
         #print(self.predict_one(data[1]))
         return np.apply_along_axis(self.predict_one, 1, data)

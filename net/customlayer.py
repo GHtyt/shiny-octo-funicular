@@ -44,6 +44,7 @@ class MyRelu(nn.Module):
     def forward(self, x):  # x shape: (batch, *, *, ...)
         #x = x.clamp(0,1)
         a = 0.1
+        #print(x.shape)
         x = torch.where(x>1, (x-1)*a+1, x)
         x = torch.where(x<0, x*a, x)
         return x
@@ -145,6 +146,12 @@ class MyNand3Layer(nn.Module):  # 自己定义层Flattenlayer
         y2 = torch.stack((x0, x1, x2, x3)).view(x.shape[0], 4, self.n, self.n)
         return y2
 
+class MySelect(nn.Module):
+    def __init__(self):
+        super(MySelect, self).__init__()
+
+    def forward(self, x, k):
+        return x[:, 2*k:2*k+2]
 
 class MyDense(nn.Module):
     def __init__(self, cin, cout, bit=0):
